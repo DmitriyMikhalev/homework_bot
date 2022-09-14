@@ -1,11 +1,33 @@
-...
+import os
+import time
+import logging
+from http import HTTPStatus
+
+import requests
+import telegram
+from dotenv import load_dotenv
+
+from exceptions import (
+    ConnectApiError,
+    ResponseStatusError,
+)
 
 load_dotenv()
 
+logger = logging.getLogger(__name__)
+handler = logging.StreamHandler()
 
-PRACTICUM_TOKEN = ...
-TELEGRAM_TOKEN = ...
-TELEGRAM_CHAT_ID = ...
+logger.setLevel(logging.INFO)
+logger.addHandler(handler)
+
+formatter = logging.Formatter(
+    '%(levelname)s - %(asctime)s - %(name)s - %(message)s'
+)
+handler.setFormatter(formatter)
+
+PRACTICUM_TOKEN = os.getenv('PRACTICUM_TOKEN')
+TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
+TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 
 RETRY_TIME = 600
 ENDPOINT = 'https://practicum.yandex.ru/api/user_api/homework_statuses/'
@@ -20,63 +42,103 @@ HOMEWORK_STATUSES = {
 
 
 def send_message(bot, message):
-    ...
+    """Ask bot to send message. Args: telegram.Bot and message (str)."""
+    try:
+        bot.send_message(
+            chat_id=TELEGRAM_CHAT_ID,
+            text=message
+        )
+        logger.info('Telegram message is submitted.')
+
+    except telegram.TelegramError as error:
+        logger.error(f'Telegram message was not submitted: {error}')
 
 
-def get_api_answer(current_timestamp):
-    timestamp = current_timestamp or int(time.time())
-    params = {'from_date': timestamp}
+def get_api_answer(timestamp=0):
+    """Return API response -> json formatted to python types if it possible.
+    Throwing exception if any problems with API answer.
+    Arg: timestamp (int), default is 0 ---> UNIX timestamp.
+    Timestamp defines the start of new answer is awaiting.
+    """
+    try:
+        response = requests.get(
+            ENDPOINT,
+            params={'from_date': timestamp},
+            headers=HEADERS
+        )
 
-    ...
+        if response.status_code != HTTPStatus.OK:
+            raise ResponseStatusError(
+                f'API response status code {response.status_code}.'
+                + 'Should be 200!'
+            )
+
+    except Exception:
+        raise ConnectApiError('Failed to get API answer!')
+
+    return response.json()
 
 
 def check_response(response):
-
-    ...
+    """Return dict from API response.
+    Args: response --> json formatted to python types.
+    """
+    homeworks = response["homeworks"]
+    return homeworks[0]
 
 
 def parse_status(homework):
-    homework_name = ...
-    homework_status = ...
+    """Return str message about update at API answer."""
+    if "homework_name" not in homework:
+        raise KeyError('No homework name at homework dict!')
+    if "status" not in homework:
+        raise KeyError('No status at homework dict!')
 
-    ...
+    homework_name = homework.get('homework_name')
+    homework_status = homework.get('status')
 
-    verdict = ...
+    try:
+        verdict = HOMEWORK_STATUSES[homework_status]
 
-    ...
+    except Exception:
+        raise KeyError('Status is undefined!')
 
     return f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
 
 def check_tokens():
-    ...
+    """Return True if private data is available, other cases return False."""
+    if PRACTICUM_TOKEN and TELEGRAM_TOKEN and TELEGRAM_CHAT_ID:
+        return True
+
+    logger.error('Private data is not given!')
 
 
 def main():
     """Основная логика работы бота."""
-
-    ...
-
+    if not check_tokens():
+        exit()
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
-    current_timestamp = int(time.time())
-
-    ...
-
     while True:
         try:
-            response = ...
-
-            ...
-
-            current_timestamp = ...
-            time.sleep(RETRY_TIME)
+            response = get_api_answer(int(time.time()) - RETRY_TIME)
+            homework = check_response(response)
+            if homework:
+                bot.send_message(
+                    chat_id=TELEGRAM_CHAT_ID,
+                    text=parse_status(homework)
+                )
 
         except Exception as error:
             message = f'Сбой в работе программы: {error}'
-            ...
+            logger.critical(message)
+            bot.send_message(
+                chat_id=TELEGRAM_CHAT_ID,
+                text=message
+            )
+
+        finally:
             time.sleep(RETRY_TIME)
-        else:
-            ...
 
 
 if __name__ == '__main__':
