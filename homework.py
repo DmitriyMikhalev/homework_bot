@@ -1,13 +1,11 @@
+from http import HTTPStatus
+import logging
 import os
 import time
-import logging
-from http import HTTPStatus
 
 import requests
 import telegram
 from dotenv import load_dotenv
-
-from exceptions import ResponseStatusError, ResponseIncorrectError
 
 load_dotenv()
 
@@ -40,18 +38,20 @@ HOMEWORK_STATUSES = {
 
 
 def check_response(response):
-    """Return dict from API response.
+    """Return list of homeworks from API response.
     Args: response --> json formatted to python types.
     """
-    if type(response['homeworks']) is not list:
-        raise ResponseIncorrectError('Response has incorrect format!')
+    if not isinstance(response, dict):
+        raise TypeError('Response is not a dict!')
+
+    if not ('homeworks' in response and 'current_date' in response):
+        raise TypeError('Response doesn\'t have needed keys!')
+
+    if not isinstance(response['homeworks'], list):
+        raise TypeError('Response has incorrect format of homeworks sequence!')
 
     logger.debug('Reponse has correct format.')
-
-    if response['homeworks'] == []:
-        return {}
-
-    return response['homeworks'][0]
+    return response['homeworks']
 
 
 def check_tokens():
@@ -76,10 +76,7 @@ def get_api_answer(timestamp=0):
         url=ENDPOINT
     )
     if response.status_code != HTTPStatus.OK:
-        raise ResponseStatusError(
-            f'API response status code {response.status_code}.'
-            + ' Should be 200!'
-        )
+        response.raise_for_status()
 
     logger.debug('JSON was formatted successfully.')
     return response.json()
@@ -94,49 +91,46 @@ def main():
 
     while True:
         try:
-            response = get_api_answer(int(time.time()) - RETRY_TIME)
-            homework = check_response(response)
+            response = get_api_answer(0)
+            homeworks = check_response(response)
 
-            if homework:
+            if homeworks:
                 send_message(
                     bot=bot,
-                    message=parse_status(homework)
+                    message=parse_status(homeworks[0])
                 )
             else:
                 logger.info(
-                    'Everything was correct but where is no message to send'
+                    'Everything was correct but where is no message to send.'
                 )
-
         except Exception as error:
             message = f'Сбой в работе программы:\n{error}'
-            logger.error(message)
-
-            bot.send_message(
-                chat_id=TELEGRAM_CHAT_ID,
-                text=message
-            )
-
+            logger.exception(msg=message)
+            try:
+                bot.send_message(
+                    chat_id=TELEGRAM_CHAT_ID,
+                    text=message
+                )
+            except Exception as error:
+                logger.error(f'Unable to send message! {error}')
         finally:
             time.sleep(RETRY_TIME)
 
 
 def parse_status(homework):
     """Return str message about update at API answer."""
-    if 'homework_name' not in homework:
-        raise KeyError('No homework name at homework dict!')
-
-    if 'status' not in homework:
-        raise KeyError('No status at homework dict!')
+    if 'homework_name' not in homework or 'status' not in homework:
+        raise KeyError('No homework name and status at homework dict!')
 
     homework_name = homework.get('homework_name')
     homework_status = homework.get('status')
     verdict = HOMEWORK_STATUSES.get(homework_status)
 
     if verdict is None:
-        raise ResponseIncorrectError('Homework status is undefined!')
+        raise KeyError('Homework status is undefined!')
 
     logger.debug('Status was parsed successfully.')
-    return f'Изменился статус проверки работы "{homework_name}". {verdict}'
+    return f'Изменился статус проверки работы "{homework_name}".\n\n{verdict}'
 
 
 def send_message(bot, message):
