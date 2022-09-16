@@ -7,10 +7,7 @@ import requests
 import telegram
 from dotenv import load_dotenv
 
-from exceptions import (
-    ConnectApiError,
-    ResponseStatusError,
-)
+from exceptions import ResponseStatusError, ResponseIncorrectError
 
 load_dotenv()
 
@@ -21,7 +18,8 @@ logger.setLevel(logging.INFO)
 logger.addHandler(handler)
 
 formatter = logging.Formatter(
-    '%(levelname)s - %(asctime)s - %(name)s - %(message)s'
+    '%(levelname)s - %(asctime)s - %(funcName)s'
+    + ' - %(lineno)d - %(name)s - %(message)s'
 )
 handler.setFormatter(formatter)
 
@@ -45,15 +43,25 @@ def check_response(response):
     """Return dict from API response.
     Args: response --> json formatted to python types.
     """
-    return response["homeworks"][0]
+    if type(response['homeworks']) is not list:
+        raise ResponseIncorrectError('Response has incorrect format!')
+
+    logger.debug('Reponse has correct format.')
+
+    if response['homeworks'] == []:
+        return {}
+
+    return response['homeworks'][0]
 
 
 def check_tokens():
     """Return True if private data is available, other cases return False."""
     if PRACTICUM_TOKEN and TELEGRAM_TOKEN and TELEGRAM_CHAT_ID:
+        logger.debug('Private data is correct.')
         return True
 
-    logger.error('Private data is not given!')
+    logger.critical('Private data is not given!')
+    return False
 
 
 def get_api_answer(timestamp=0):
@@ -62,22 +70,18 @@ def get_api_answer(timestamp=0):
     Arg: timestamp (int), default is 0 ---> UNIX timestamp.
     Timestamp defines the start of new answer is awaiting.
     """
-    try:
-        response = requests.get(
-            headers=HEADERS,
-            params={'from_date': timestamp},
-            url=ENDPOINT
+    response = requests.get(
+        headers=HEADERS,
+        params={'from_date': timestamp},
+        url=ENDPOINT
+    )
+    if response.status_code != HTTPStatus.OK:
+        raise ResponseStatusError(
+            f'API response status code {response.status_code}.'
+            + ' Should be 200!'
         )
 
-        if response.status_code != HTTPStatus.OK:
-            raise ResponseStatusError(
-                f'API response status code {response.status_code}.'
-                + 'Should be 200!'
-            )
-
-    except Exception:
-        raise ConnectApiError('Failed to get API answer!')
-
+    logger.debug('JSON was formatted successfully.')
     return response.json()
 
 
@@ -94,14 +98,18 @@ def main():
             homework = check_response(response)
 
             if homework:
-                bot.send_message(
-                    chat_id=TELEGRAM_CHAT_ID,
-                    text=parse_status(homework)
+                send_message(
+                    bot=bot,
+                    message=parse_status(homework)
+                )
+            else:
+                logger.info(
+                    'Everything was correct but where is no message to send'
                 )
 
         except Exception as error:
-            message = f'Сбой в работе программы: {error}'
-            logger.critical(message)
+            message = f'Сбой в работе программы:\n{error}'
+            logger.error(message)
 
             bot.send_message(
                 chat_id=TELEGRAM_CHAT_ID,
@@ -114,35 +122,31 @@ def main():
 
 def parse_status(homework):
     """Return str message about update at API answer."""
-    if "homework_name" not in homework:
+    if 'homework_name' not in homework:
         raise KeyError('No homework name at homework dict!')
 
-    if "status" not in homework:
+    if 'status' not in homework:
         raise KeyError('No status at homework dict!')
 
     homework_name = homework.get('homework_name')
     homework_status = homework.get('status')
+    verdict = HOMEWORK_STATUSES.get(homework_status)
 
-    try:
-        verdict = HOMEWORK_STATUSES[homework_status]
+    if verdict is None:
+        raise ResponseIncorrectError('Homework status is undefined!')
 
-    except Exception:
-        logger.error('Status is undefined!')
-
+    logger.debug('Status was parsed successfully.')
     return f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
 
 def send_message(bot, message):
     """Ask bot to send message. Args: telegram.Bot and message (str)."""
-    try:
-        bot.send_message(
-            chat_id=TELEGRAM_CHAT_ID,
-            text=message
-        )
-        logger.info('Telegram message is submitted.')
+    bot.send_message(
+        chat_id=TELEGRAM_CHAT_ID,
+        text=message
+    )
 
-    except telegram.TelegramError as error:
-        logger.error(f'Telegram message was not submitted: {error}')
+    logger.debug('Telegram message was submitted.')
 
 
 if __name__ == '__main__':
