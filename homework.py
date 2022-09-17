@@ -1,11 +1,17 @@
+from __future__ import annotations
+
 import logging
 import os
 import time
+from datetime import datetime
 from http import HTTPStatus
+from tkinter.messagebox import RETRY
+from typing import Union
 
 import requests
-import telegram
 from dotenv import load_dotenv
+from requests.models import Response
+from telegram import Bot, TelegramError
 
 from exceptions import SendMessageError
 
@@ -39,7 +45,7 @@ HOMEWORK_STATUSES = {
 }
 
 
-def check_response(response):
+def check_response(response: dict[str, dict]) -> list[dict]:
     """Return list of homeworks from API response.
     Args: response --> json formatted to python types.
     """
@@ -56,7 +62,7 @@ def check_response(response):
     return response['homeworks']
 
 
-def check_tokens():
+def check_tokens() -> bool:
     """Return True if private data is available, other cases return False."""
     if PRACTICUM_TOKEN and TELEGRAM_TOKEN and TELEGRAM_CHAT_ID:
         logger.debug('Private data is correct.')
@@ -66,17 +72,18 @@ def check_tokens():
     return False
 
 
-def get_api_answer(timestamp=0):
-    """Return API response -> json formatted to python types if it possible.
+def get_api_answer(timestamp: int = 0) -> dict:
+    """Return dict converted from API answer (JSON) if it possible.
     Throwing exception if any problems with API answer.
     Arg: timestamp (int), default is 0 ---> UNIX timestamp.
     Timestamp defines the start of new answer is awaiting.
     """
-    response = requests.get(
+    response: Response = requests.get(
         headers=HEADERS,
         params={'from_date': timestamp},
         url=ENDPOINT
     )
+
     if response.status_code != HTTPStatus.OK:
         response.raise_for_status()
 
@@ -84,43 +91,59 @@ def get_api_answer(timestamp=0):
     return response.json()
 
 
-def main():
-    """Основная логика работы бота."""
+def main() -> None:
+    """Main function describes the logic of the bot.
+    Logs every error and info about sending or not sending
+    a message if everything is ok.
+    Polling time is 10 minutes.
+    """
     if not check_tokens():
         exit()
 
-    bot = telegram.Bot(token=TELEGRAM_TOKEN)
-    errors_occured = True
+    bot: Bot = Bot(token=TELEGRAM_TOKEN)
+    prev_message = f'Запущен: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}'
+    send_message(
+        bot=bot,
+        message=prev_message
+    )
 
     while True:
         try:
-            response = get_api_answer(int(time.time()) - RETRY_TIME)
-            homeworks = check_response(response)
+
+            response: dict[str, dict] = get_api_answer(
+                int(time.time()) - RETRY_TIME
+            )
+            homeworks: list[dict] = check_response(response)
 
             if homeworks:
-                send_message(
-                    bot=bot,
-                    message=parse_status(homeworks[0])
-                )
+                message = parse_status(homeworks[0])
+                if prev_message != message:
+                    logger.info('Message with new status was submitted.')
+                    send_message(
+                        bot=bot,
+                        message=message
+                    )
+
+                    prev_message = message
             else:
                 logger.info(
                     'Everything was correct but where is no message to send.'
                 )
         except Exception as error:
             message = f'Сбой в работе программы:\n{error}'
-            logger.exception(msg=message)
-
-            if errors_occured:
-                errors_occured = False
+            if prev_message != message:
+                logger.exception(msg=message)
                 bot.send_message(
                     chat_id=TELEGRAM_CHAT_ID,
                     text=message
                 )
+
+                prev_message = message
         finally:
             time.sleep(RETRY_TIME)
 
 
-def parse_status(homework):
+def parse_status(homework: dict[str, Union[str, int]]) -> str:
     """Return str message about update at API answer."""
     if 'homework_name' not in homework or 'status' not in homework:
         raise KeyError('No homework name or status at homework dict!')
@@ -136,14 +159,14 @@ def parse_status(homework):
     return f'Изменился статус проверки работы "{homework_name}".\n\n{verdict}'
 
 
-def send_message(bot, message):
+def send_message(bot: Bot, message: str) -> None:
     """Ask bot to send message. Args: telegram.Bot and message (str)."""
     try:
         bot.send_message(
             chat_id=TELEGRAM_CHAT_ID,
             text=message
         )
-    except telegram.error.TelegramError as error:
+    except TelegramError as error:
         raise SendMessageError(f'Unable to send message! {error}')
 
     logger.debug('Telegram message was submitted.')
