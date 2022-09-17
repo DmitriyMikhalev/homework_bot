@@ -1,11 +1,13 @@
-from http import HTTPStatus
 import logging
 import os
 import time
+from http import HTTPStatus
 
 import requests
 import telegram
 from dotenv import load_dotenv
+
+from exceptions import SendMessageError
 
 load_dotenv()
 
@@ -44,8 +46,8 @@ def check_response(response):
     if not isinstance(response, dict):
         raise TypeError('Response is not a dict!')
 
-    if not ('homeworks' in response and 'current_date' in response):
-        raise TypeError('Response doesn\'t have needed keys!')
+    if not all(key in response for key in ('homeworks', 'current_date')):
+        raise KeyError('Response doesn\'t have needed keys!')
 
     if not isinstance(response['homeworks'], list):
         raise TypeError('Response has incorrect format of homeworks sequence!')
@@ -88,10 +90,11 @@ def main():
         exit()
 
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
+    errors_occured = True
 
     while True:
         try:
-            response = get_api_answer(0)
+            response = get_api_answer(int(time.time()) - RETRY_TIME)
             homeworks = check_response(response)
 
             if homeworks:
@@ -106,13 +109,13 @@ def main():
         except Exception as error:
             message = f'Сбой в работе программы:\n{error}'
             logger.exception(msg=message)
-            try:
+
+            if errors_occured:
+                errors_occured = False
                 bot.send_message(
                     chat_id=TELEGRAM_CHAT_ID,
                     text=message
                 )
-            except Exception as error:
-                logger.error(f'Unable to send message! {error}')
         finally:
             time.sleep(RETRY_TIME)
 
@@ -120,7 +123,7 @@ def main():
 def parse_status(homework):
     """Return str message about update at API answer."""
     if 'homework_name' not in homework or 'status' not in homework:
-        raise KeyError('No homework name and status at homework dict!')
+        raise KeyError('No homework name or status at homework dict!')
 
     homework_name = homework.get('homework_name')
     homework_status = homework.get('status')
@@ -135,10 +138,13 @@ def parse_status(homework):
 
 def send_message(bot, message):
     """Ask bot to send message. Args: telegram.Bot and message (str)."""
-    bot.send_message(
-        chat_id=TELEGRAM_CHAT_ID,
-        text=message
-    )
+    try:
+        bot.send_message(
+            chat_id=TELEGRAM_CHAT_ID,
+            text=message
+        )
+    except telegram.error.TelegramError as error:
+        raise SendMessageError(f'Unable to send message! {error}')
 
     logger.debug('Telegram message was submitted.')
 
