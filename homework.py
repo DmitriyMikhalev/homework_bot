@@ -5,7 +5,6 @@ import os
 import time
 from datetime import datetime
 from http import HTTPStatus
-from tkinter.messagebox import RETRY
 from typing import Union
 
 import requests
@@ -109,7 +108,6 @@ def main() -> None:
 
     while True:
         try:
-
             response: dict[str, dict] = get_api_answer(
                 int(time.time()) - RETRY_TIME
             )
