@@ -129,8 +129,8 @@ def main() -> None:
                 )
         except Exception as error:
             message = f'Сбой в работе программы:\n{error}'
+            logger.exception(msg=message)
             if prev_message != message:
-                logger.exception(msg=message)
                 bot.send_message(
                     chat_id=TELEGRAM_CHAT_ID,
                     text=message
