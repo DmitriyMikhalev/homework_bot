@@ -100,7 +100,7 @@ def main() -> None:
         exit()
 
     bot: Bot = Bot(token=TELEGRAM_TOKEN)
-    prev_message = f'Запущен: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}'
+    prev_message = f'Started: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}'
     send_message(
         bot=bot,
         message=prev_message
@@ -128,7 +128,7 @@ def main() -> None:
                     'Everything was correct but where is no message to send.'
                 )
         except Exception as error:
-            message = f'Сбой в работе программы:\n{error}'
+            message = f'Error:\n{error}'
             logger.exception(msg=message)
             if prev_message != message:
                 bot.send_message(
@@ -154,7 +154,7 @@ def parse_status(homework: dict[str, Union[str, int]]) -> str:
         raise KeyError('Homework status is undefined!')
 
     logger.debug('Status was parsed successfully.')
-    return f'Изменился статус проверки работы "{homework_name}".\n\n{verdict}'
+    return f'Homework\'s status has changed: "{homework_name}".\n\n{verdict}'
 
 
 def send_message(bot: Bot, message: str) -> None:

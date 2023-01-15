@@ -1,25 +1,32 @@
 # Telegram-bot assistant
 
-Assistant is a Python-based bot that helps track homework statuses in Yandex Practicum (editable). 
+Assistant is a Python-based bot for Telegram that helps track homework statuses
+ at Yandex Practicum (editable). 
 
-All requirements see at **requirements.txt**. 
-
-## Installation
-
-Use the package manager [pip](https://pip.pypa.io/en/stable/) to install the application.
-
-## **Don't forget to activate your virtual environment first!**
-
-```bash
+# Installation guide
+1. Clone the repository:
+```
+git clone <url>
+```
+2. Create and activate virtual environment:
+```
+python -m venv <env_name>
+source venv/Scripts/activate
+```
+3. Install all requirements:
+```
 pip install -r requirements.txt
 ```
-
+4. Execute the **homework.py** file:
+```
+python homework.py
+```
 
 ## Knowledge
 
-- Basic Python
+- Basic Python==3.9
 - Basic skills with API and JSON
-- Lib: python-telegram-bot
+- Lib: python-telegram-bot~=13.7
 - Lib: python-dotenv
 - Lib: requests
 - Optional: logging
